@@ -77,7 +77,7 @@ tm_shape(berlin) +
   tm_borders() +
   tm_fill(col="Crimes per 100000 inhabitants")
 
-#visualize inhabitants
+#visualize corona cases
 tm_shape(berlin) + 
   tm_borders() +
   tm_fill(col="Corona cases per 100000 inhabitants")
