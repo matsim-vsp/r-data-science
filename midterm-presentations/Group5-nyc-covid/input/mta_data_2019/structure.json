@@ -1,0 +1,81 @@
+{
+ "checksum": "QmdtYEToRHu6wD23m9DTBQn2TjSzt4VHhYCSgDaPfNTYn2",
+ "depth": 2,
+ "entries": 159384,
+ "errCount": 5851,
+ "format": "csv",
+ "formatConfig": {
+  "headerRow": true,
+  "lazyQuotes": true
+ },
+ "length": 17998583,
+ "qri": "st:0",
+ "schema": {
+  "items": {
+   "items": [
+    {
+     "description": "the name associated with the station, based on lookup from nyc-transit-data/turnstile-station-list",
+     "title": "stop_name",
+     "type": "string"
+    },
+    {
+     "description": "the daytime routes associated with the station, based on lookup from nyc-transit-data/turnstile-station-list",
+     "title": "daytime_routes",
+     "type": "string"
+    },
+    {
+     "description": "the subway division of the station, based on lookup from nyc-transit-data/turnstile-station-list",
+     "title": "division",
+     "type": "string"
+    },
+    {
+     "description": "the subway line of the station, based on lookup from nyc-transit-data/turnstile-station-list",
+     "title": "line",
+     "type": "string"
+    },
+    {
+     "description": "the single letter borough identifier for the station, based on lookup from nyc-transit-data/turnstile-station-list",
+     "title": "borough",
+     "type": "string"
+    },
+    {
+     "description": "the structure type of the station, based on lookup from nyc-transit-data/turnstile-station-list",
+     "title": "structure",
+     "type": "string"
+    },
+    {
+     "description": "the wgs84 longitude of the station, based on lookup from nyc-transit-data/turnstile-station-list",
+     "title": "gtfs_longitude",
+     "type": "number"
+    },
+    {
+     "description": "the wgs84 latitude of the station, based on lookup from nyc-transit-data/turnstile-station-list",
+     "title": "gtfs_latitude",
+     "type": "number"
+    },
+    {
+     "description": "the complex id.  If not a complex, the station id",
+     "title": "complex_id",
+     "type": "integer"
+    },
+    {
+     "description": "the calendar date",
+     "title": "date",
+     "type": "string"
+    },
+    {
+     "description": "the sum of entires for all turnstile observation windows associated with this station/complex that ended on this calendar date",
+     "title": "entries",
+     "type": "integer"
+    },
+    {
+     "description": "the sum of exits for all turnstile observation windows associated with this station/complex that ended on this calendar date",
+     "title": "exits",
+     "type": "integer"
+    }
+   ],
+   "type": "array"
+  },
+  "type": "array"
+ }
+}
