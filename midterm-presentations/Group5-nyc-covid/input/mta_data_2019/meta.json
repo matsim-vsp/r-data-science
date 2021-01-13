@@ -1,0 +1,16 @@
+{
+ "description": "NYC Subway Turnstile Counts Data aggregated by day and station complex for the year 2019.  ",
+ "keywords": [
+  "NYC",
+  "transit",
+  "subway",
+  "turnstiles",
+  "mobility"
+ ],
+ "license": {
+  "type": "Creative Commons Attribution (CC BY)",
+  "url": "https://creativecommons.org/licenses/by/4.0/"
+ },
+ "qri": "md:0",
+ "title": "NYC Subway Turnstile Counts - 2019"
+}
