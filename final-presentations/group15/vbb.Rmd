@@ -1,0 +1,310 @@
+
+---
+title: "VBB GTFS data analysis"
+output:
+  flexdashboard::flex_dashboard:
+  orientation: rows # rows
+  vertical_layout: scroll # fill
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(sf)
+library(tidytransit)
+library(tmap)
+library(readxl)
+library(flexdashboard)
+library(sfnetworks)
+library(tidygraph)
+library(fuzzyjoin)
+
+vbb_gtfs <- read_gtfs("BVG_VBB_bereichsscharf.zip")
+
+vbb_shapes <- shapes_as_sf(vbb_gtfs$shapes)
+vbb_stops <- stops_as_sf(vbb_gtfs$stops)
+
+
+berlin_bezirke <- st_read("shapes/GRENZEN_1163761-6656443_berlinbezirke.shp")
+
+ew_be <- read_xlsx("ew_berlin.xlsx") %>% 
+  select("gemeinde", "einwohner", "dichte")
+
+ew_bb_be <- read_xlsx("GemVerz.xlsx") %>% 
+  select("gemeinde", "einwohner", "flaeche") %>%
+  filter(!is.na(flaeche)) %>% 
+  mutate(dichte = einwohner/flaeche*100) %>% 
+  full_join(ew_be)
+
+gemeinde_shapes <- st_read("shapes/GRENZEN_1163761-6656443_gemeinden.shp") %>%
+  union(berlin_bezirke) %>% 
+  st_as_sf() %>% 
+  left_join(ew_bb_be, by = c("NAME" = "gemeinde"))
+  
+frequencies <- get_route_frequency(vbb_gtfs)
+
+stops_departures <- vbb_gtfs$stop_times %>% 
+  group_by(stop_id) %>% 
+  summarise(anzahl_abfahrten = n()) %>% 
+  left_join(vbb_stops, by = "stop_id") %>% 
+  st_as_sf()
+
+bb_eisenbahn <- st_read("shapes/gis_osm_railways_free_1.shp")
+```
+
+Departures <> Population Density
+==================
+
+How many trips depart from a stop in relation to the population density?
+
+```{r include=FALSE}
+# 060135001111 // 450009182002
+around_friedrichshagen <- vbb_stops %>% 
+  filter(stop_id == "060135001111") %>% 
+  st_as_sf(crs=4326) %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_buffer(15000)
+
+stops_around_friedrichshagen <- stops_departures %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_intersection(around_friedrichshagen)
+
+gemeinden_around_friedrichshagen <- gemeinde_shapes %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_intersection(around_friedrichshagen)
+```
+
+
+```{r}
+tmap_mode("view")
+tm_basemap("OpenStreetMap.Mapnik") +
+  tm_shape(around_friedrichshagen) +
+  tm_borders() +
+  tm_shape(gemeinden_around_friedrichshagen) +
+  tm_polygons(col = "dichte", title="population density", alpha = 0.4, palette = '-viridis', id = "NAME", style = "log10",  popup.vars = c("Gemeindename" = "NAME", "Einwohnerdichte" = "dichte")) +
+  tm_shape(stops_around_friedrichshagen) +
+  tm_dots(size = 0.2, col = "anzahl_abfahrten", title = "number of departures per day", palette = '-viridis', style = "log10", id = "stop_name")
+```
+
+
+
+Availability of Stops
+==================
+
+Are there any areas in Potsdam where there is no stop in 400 meters of walking?
+
+"Nahverkehrsplan" for city of Potsdam defines 300-500 meters walking distance as criteria for good service quality. Map shows circles around stops with a radius of 400 meters, regardless how often services run at the stops.
+
+```{r include=FALSE}
+
+potsdam_stops <- vbb_stops %>% 
+  filter(str_detect(stop_name, "Potsdam(,| )")) %>% 
+  st_as_sf(crs=4326) %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_buffer(400)
+
+potsdam_shape <- gemeinde_shapes %>% 
+  filter(NAME == "Potsdam")
+```
+
+
+```{r}
+tmap_mode("view")
+tm_basemap("OpenStreetMap.Mapnik") +
+  tm_shape(potsdam_shape) +
+  tm_borders(col = 'red', lwd = 2) +
+  tm_shape(potsdam_stops) +
+  tm_polygons(id = "stop_name", alpha = 0.3, interactive = FALSE, border.alpha = 0.2)
+```
+
+Isochrone Map
+==================
+
+How far can you go in the VBB area in the time of our lecture (departing later than 4:15 PM and arriving earlier than 5:45 PM) starting at Berlin Hauptbahnhof station?
+
+```{r}
+travel_times_BL_0 <- filter_stop_times(vbb_gtfs, "2021-02-15", "16:15:00", "17:45:00") %>% 
+  travel_times(c("S+U Berlin Hauptbahnhof", "S+U Berlin Hauptbahnhof (tief)"), max_transfers = 0, return_coords = TRUE) %>% 
+  mutate(travel_time_hms = hms::as_hms(travel_time))
+
+
+
+travel_times_BL_5 <- filter_stop_times(vbb_gtfs, "2021-02-15", "16:15:00", "17:45:00") %>% 
+  travel_times(c("S+U Berlin Hauptbahnhof", "S+U Berlin Hauptbahnhof (tief)"), max_transfers = 5, return_coords = TRUE) %>% 
+  mutate(travel_time_hms = hms::as_hms(travel_time))
+
+```
+
+# of Stops reachable without changes
+-------------------------------------
+
+### # of Stops reachable without changes
+
+```{r}
+valueBox(nrow(travel_times_BL_0), icon = "fa-bus")
+```
+
+
+### 0 transfers
+
+```{r}
+tmap_mode("view")
+tm_basemap("OpenStreetMap.Mapnik") +
+  tm_shape(bb_eisenbahn)+
+  tm_lines(col="fclass", legend.col.show = FALSE, scale =3, interactive = FALSE)+
+  tm_shape(st_as_sf(travel_times_BL_0, coords = c("to_stop_lon", "to_stop_lat"))) +
+  tm_dots(col = "transfers", style = "cat", palette = '-viridis', id = "to_stop_name", popup.vars = c("travel_time_hms", "transfers"), title = "Number of transfers", legend.show = FALSE)
+  
+```
+
+
+# of Stops reachable up to five changes
+-------------------------------------
+
+### # of Stops reachable with up to five changes
+
+```{r}
+valueBox(nrow(travel_times_BL_5), icon = "fa-bus")
+```
+
+
+### 5 transfers
+
+```{r}
+tmap_mode("view")
+tm_basemap("OpenStreetMap.Mapnik") +
+    tm_shape(bb_eisenbahn)+
+  tm_lines(col="fclass", legend.col.show = FALSE, scale=3, interactive=FALSE)+
+  tm_shape(st_as_sf(travel_times_BL_5, coords = c("to_stop_lon", "to_stop_lat"))) +
+  tm_dots(col = "transfers", style = "cat", palette = '-viridis', id = "to_stop_name", popup.vars = c("travel_time_hms", "transfers"), title = "Number of transfers")
+
+```
+
+
+Suburb accessibility 
+==================
+
+Don't want to spend all your money on rent? A look at service frequencies on transit lines around the borders of Berlin to determine where a comfortable car-free life might be possible.
+
+```{r}
+vbb_gtfs <- set_servicepattern(vbb_gtfs)
+# buch actually 060135001111, but many many route artifacts
+
+around_buch <- vbb_stops %>% 
+  filter(stop_id == "450009182002") %>% 
+  st_as_sf(crs=4326) %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_buffer(15000)
+
+stops_around_buch <- stops_departures %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_intersection(around_buch)
+
+gemeinden_around_buch <- gemeinde_shapes %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_intersection(around_buch)
+
+# idee: wochenende und nachts
+dichte_tagsüber <- get_route_frequency(vbb_gtfs, start_hour = 6, end_hour = 10, dow=c(1,1,1,1,1,0,0)) # weekdays
+dichte_woche_spätabend <- get_route_frequency(vbb_gtfs, start_hour = 21, end_hour = 24, dow=c(1,1,1,1,1,0,0))
+dichte_wochenende_party <- get_route_frequency(vbb_gtfs, start_hour = 0, end_hour = 4, dow=c(0,0,0,0,0,1,1))
+
+vbb_sf <- gtfs_as_sf(vbb_gtfs)
+vbb_linien_sf <- get_route_geometry(vbb_sf) 
+
+vbb_linien_sf_tag <- vbb_linien_sf %>% 
+  inner_join(dichte_tagsüber, by ="route_id") 
+
+vbb_linien_sf_spaet<- vbb_linien_sf %>% inner_join(dichte_woche_spätabend, by="route_id",suffix=c(".tag",".spaet"))
+  
+vbb_linien_sf_nachts <- vbb_linien_sf %>% inner_join(dichte_wochenende_party, by="route_id",suffix=c("x",".party"))
+```
+
+Weekdays, Rush Hour (0600-1000)
+-------------------------------------
+
+### Weekdays, Rush Hour (0600-1000)
+
+```{r}
+lines_around_buch <- vbb_linien_sf_tag %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_intersection(around_buch)
+
+tm_basemap("OpenStreetMap.Mapnik") +
+  tm_shape(around_buch) +
+  tm_borders() +
+  tm_shape(lines_around_buch) +
+  tm_lines(col="median_headways", palette = '-viridis', title.col = "median route headwys")
+  
+#style="fixed", breaks=c(0,15,30,60,120,240) --> will nicht richtig
+```
+
+Weekend, early morning (0000-0400)
+-------------------------------------
+
+### Weekend, early morning (0000-0400)
+
+(post-night-life-rush-hour)
+
+```{r}
+lines_around_buch_nachts <- vbb_linien_sf_spaet %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_intersection(around_buch)
+
+tm_basemap("OpenStreetMap.Mapnik") +
+  tm_shape(around_buch) +
+  tm_borders() +
+  tm_shape(lines_around_buch_nachts) +
+  tm_lines(col="median_headways", style = "fixed", palette = '-viridis',breaks=c(0,15,30,60,120,240), title.col="median route headways")
+```
+
+# Stops per X
+Numbers are skewed inside dense areas because of the way VBB defines stops.
+
+```{r preparation}
+# buch actually 060135001111, but many many route artifacts
+
+around_buch <- vbb_stops %>% 
+  filter(stop_id == "450009182002") %>% 
+  st_as_sf(crs=4326) %>% 
+  st_transform("+proj=utm +zone=32") %>% 
+  st_buffer(15000)
+
+my_stops <- vbb_stops %>% 
+  st_transform(crs=3857)
+
+stopfeats <- vbb_stops %>% 
+  filter(stop_id=="450009182002") %>%  
+  st_transform("+proj=utm +zone=32") %>% 
+  st_intersects(around_buch)
+
+abc <- gemeinde_shapes %>% mutate(stops = st_intersects(geometry, my_stops))
+def <- abc %>% mutate(stopcount = lengths(stops)) %>% mutate(persons_per_stop = einwohner/stopcount, stops_per_area=stopcount/flaeche, stops_per_density=stopcount/dichte)
+
+gemeindestopdensity = def %>% select(NAME,persons_per_stop,stops_per_area,stops_per_density,geometry) %>% filter()
+```
+
+### How many stops exist per person per square kilometer?
+(Stops per Area would more or less be a population density plot)
+
+```{r}
+tm_basemap("OpenStreetMap.Mapnik") +
+  tm_shape(bb_eisenbahn)+
+  tm_lines(scale=2)+
+  tm_shape(gemeindestopdensity) +
+  tm_polygons(col="stops_per_density", alpha=0.6, palette = '-viridis', style = "pretty", id = "NAME", title="Stops per inhabitant per sq km")
+```
+
+
+Sources
+==================
+
+Sources:
+
+- [VBB GTFS dataset](https://daten.berlin.de/datensaetze/vbb-fahrplandaten-gtfs)
+- [Shapefiles Berlin](https://geobroker.geobasis-bb.de/gbss.php?MODE=GetProductInformation&PRODUCTID=00fdc3fb-3bc1-4548-bca2-e735fb11c974)
+- [Shapefiles Brandenburg](https://geobroker.geobasis-bb.de/gbss.php?MODE=GetProductInformation&PRODUCTID=00fdc3fb-3bc1-4548-bca2-e735fb11c974)
+- [Population and Area of municipalities in Brandenburg](https://www.statistik-berlin-brandenburg.de/statistiken/statistik_SB.asp?Ptyp=700&Sageb=12015&creg=BBB&anzwer=6)
+- [Shapefiles of Brandenburg+Berlin Railway lines](https://download.geofabrik.de/europe/germany/brandenburg-latest-free.shp.zip)
+- [Population density of Berlin Bezirke](https://www.statistik-berlin-brandenburg.de/regionalstatistiken/r-gesamt_neu.asp?Ptyp=410&Sageb=12015&creg=BBB&anzwer=6) 
+
